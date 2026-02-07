@@ -39,18 +39,21 @@ export type Database = {
           created_at: string
           id: string
           list_id: string
+          sort_order: number
           title: string
         }
         Insert: {
           created_at?: string
           id?: string
           list_id?: string
+          sort_order: number
           title: string
         }
         Update: {
           created_at?: string
           id?: string
           list_id?: string
+          sort_order?: number
           title?: string
         }
         Relationships: [
@@ -67,16 +70,19 @@ export type Database = {
         Row: {
           created_at: string
           id: string
+          sort_order: number
           title: string
         }
         Insert: {
           created_at?: string
           id?: string
+          sort_order: number
           title: string
         }
         Update: {
           created_at?: string
           id?: string
+          sort_order?: number
           title?: string
         }
         Relationships: []

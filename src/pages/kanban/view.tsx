@@ -31,18 +31,19 @@ export function KanbanBoard() {
 
   useGate(PageGate);
 
-  const handleDragEnd = ({ source, destination }: DropResult) => {
+  const handleDragEnd = ({ source, destination, draggableId }: DropResult) => {
     if (!destination) {
       // Dropped outside droppable
       return;
     }
 
+    const cardId = draggableId;
     const fromListId = source.droppableId;
     const toListId = destination.droppableId;
     const fromIndex = source.index;
     const toIndex = destination.index;
 
-    onCardMove({ fromListId, toListId, fromIndex, toIndex });
+    onCardMove({ fromListId, toListId, fromIndex, toIndex, cardId });
   };
 
   return (

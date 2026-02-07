@@ -2,16 +2,19 @@ import { nanoid } from "nanoid";
 import { createGate } from "effector-react";
 import { createEffect, createEvent, createStore, sample } from "effector";
 import { api } from "@/shared/api";
+import type { CardUpdate } from "@/shared/api/kanban.api";
 
 export type KanbanList = {
   id: string;
   title: string;
   cards: KanbanCard[];
+  sort_order: number;
 };
 
 export type KanbanCard = {
   id: string;
   title: string;
+  sort_order: number;
 };
 
 export type KanbanCardForm = Pick<KanbanCard, "title">;
@@ -21,6 +24,7 @@ export type KanbanBoard = KanbanList[];
 export type CardId = KanbanCard["id"];
 
 export const boardUpdate = createEvent<KanbanBoard>();
+
 export const cardCreateClicked = createEvent<{
   card: KanbanCardForm;
   listId: string;
@@ -34,19 +38,22 @@ export const cardDeleteClicked = createEvent<{
   listId: string;
   cardId: string;
 }>();
-export const cardMoved = createEvent<{
-  fromListId: string;
+const cardMovedWithOrder = createEvent<{
+  cardId: string;
   toListId: string;
-  fromIndex: number;
   toIndex: number;
+  fromListId: string;
+  fromIndex: number;
+  sortOrder: number;
 }>();
+
 const cardSavedSuccess = createEvent<{originalId: string; card: KanbanCard; listId: string}>();
 const cardSavedError = createEvent<{originalId: string, listId: string}>();
 const cardCreated = createEvent<{ card: KanbanCard; listId: string}>();
-const cardMovedWithinTheList = cardMoved.filter({
+const cardMovedWithinTheList =cardMovedWithOrder.filter({
   fn: ({ fromListId, toListId }) => fromListId === toListId,
 });
-const cardMovedToAnotherList = cardMoved.filter({
+const cardMovedToAnotherList = cardMovedWithOrder.filter({
   fn: ({ fromListId, toListId }) => fromListId !== toListId,
 });
 
@@ -56,16 +63,22 @@ export const $board = createStore<KanbanBoard>([]);
 export const $cardsPendingMap = createStore<Record<CardId, boolean>>({});
 
 const cardSaveFx = createEffect(async ({ card: { id: _, ...card }, listId}: { card: KanbanCard; listId: string}) => {
-  return await api.kanban.cardsCreateFx({...card, list_id: listId });
+  return await api.kanban.cardsCreateFx({...card, list_id: listId, sort_order: Date.now() });
 })
+
 const cardDeleteFx = createEffect(async ({ cardId }: { cardId: string }) => {
   await api.kanban.cardsDeleteFx({ cardId });
 });
+
+const cardEditFx = createEffect(async ({ cardId, card }: { cardId: string; card: Partial<CardUpdate> }) => {
+  return await api.kanban.cardsUpdateFx({ ...card, id: cardId });
+});
+
 const boardInitializeFx = createEffect(async () => {
   const lists = await Promise.all([
-    api.kanban.listsCreateFx({ title: "To Do" }),
-    api.kanban.listsCreateFx({ title: "In Progress" }),
-    api.kanban.listsCreateFx({ title: "Done" }),
+    api.kanban.listsCreateFx({ title: "To Do", sort_order: 1000 }),
+    api.kanban.listsCreateFx({ title: "In Progress", sort_order: 2000 }),
+    api.kanban.listsCreateFx({ title: "Done", sort_order: 3000 }),
   ]);
   return lists.filter((list) => list !== null);
 });
@@ -102,6 +115,7 @@ $cardsPendingMap.on(cardDeleteFx.finally, (pendingMap, { params: { cardId } }) =
 });
 
 $board.on(boardUpdate, (_, board) => board);
+
 $board.on(cardCreated, (board, { card, listId }) => {
   const updateBoard = board.map((list) => {
     if (list.id === listId) {
@@ -113,6 +127,7 @@ $board.on(cardCreated, (board, { card, listId }) => {
 
   return updateBoard;
 });
+
 $board.on(cardEditClicked, (board, { listId, cardId, card }) => {
   const updatedBoard = board.map((list) => {
     if (list.id === listId) {
@@ -146,21 +161,14 @@ $board.on(cardDeleteClicked, (board, { listId, cardId }) => {
   return updatedBoard;
 });
 
-$board.on(
-  cardMovedWithinTheList,
-  (board, { fromListId, fromIndex, toIndex }) => {
-    const updatedBoard = board.map((list) => {
-      if (list.id === fromListId) {
-        const updatedList = listReorder(list, fromIndex, toIndex);
-        return updatedList;
-      }
 
-      return list;
-    });
+$board.on(cardMovedWithinTheList, (board, { fromListId, fromIndex, toIndex }) => {
+  return board.map((list) => {
+    if (list.id === fromListId) return listReorder(list, fromIndex, toIndex);
 
-    return updatedBoard;
-  }
-);
+    return list;
+  });
+});
 
 $board.on(
   cardMovedToAnotherList,
@@ -254,8 +262,6 @@ function listReorder(
   return { ...list, cards };
 }
 
-
-
 sample({
   clock: PageGate.open,
   target: boardLoadFx,
@@ -273,17 +279,11 @@ sample({
 $board.on(boardInitializeFx.doneData, (_, board) => board.map((list) => ({...list, cards: []})));
 
 sample({
-  clock: cardCreateClicked,
-  fn: ({ card, listId}) => ({ card: { ...card, id: nanoid() }, listId}),
-  target: cardCreated,
-})
-
-sample({
   clock: cardCreated,
   target: cardSaveFx,
 })
 
-$board.on(cardSaveFx.done, (board, { params, result: card }) => {
+$board.on(cardSaveFx.done, (board, { params: _params, result: _card }) => {
   /// TODO:
   return board
 })
@@ -328,3 +328,103 @@ $board.on(cardDeleteFx.done, (board, { params: { cardId } }) => {
 
   return updatedBoard;
 });
+
+sample({
+  clock: cardEditClicked,
+  target: cardEditFx,
+});
+
+$cardsPendingMap.on(cardEditFx, (pendingMap, { cardId }) => ({
+  ...pendingMap,
+  [cardId]: true,
+}));
+
+$board.on(cardEditFx.done, (board, { params: { cardId }, result: card }) => {
+  if (!card) return board;
+
+  const updatedBoard = board.map((list) => {
+    if (list.id === card.list_id) {
+      const updatedCards = list.cards.map((existingCard) => {
+        if (existingCard.id === cardId) {
+          return { ...existingCard, ...card };
+        }
+
+        return existingCard;
+      });
+
+      return { ...list, cards: updatedCards };
+    }
+
+    return list;
+  });
+
+  return updatedBoard;
+});
+
+$cardsPendingMap.on(cardEditFx.finally, (pendingMap, { params: { cardId } }) => {
+  const updatedPendingMap = { ...pendingMap };
+  delete updatedPendingMap[cardId];
+  return updatedPendingMap;
+});
+
+sample({
+  clock: cardCreateClicked,
+  source: $board,
+  fn: (board, { card, listId }) => {
+    const targetList = board.find((list) => list.id === listId);
+
+    let sortOrder = 10_000;
+    if (targetList && targetList.cards.length > 0) {
+      const maxSortOrder = Math.max(...targetList.cards.map((card) => card.sort_order));
+      sortOrder = maxSortOrder + 1000;
+    }
+
+    return { card: { ...card, id: nanoid(), sort_order: sortOrder }, listId };
+  },
+  target: cardCreated,
+});
+
+// here
+// cardMovedToAnotherList --> cardMovedWithOrder
+// cardMovedWithinTheList ---> ? 
+// cardMovedWithOrder --> cardEditFx
+sample({
+  clock: cardMovedToAnotherList,
+  source: $board,
+  fn: (board, { cardId, toListId, toIndex, ...rest }) => {
+    const targetList = board.find((list) => list.id === toListId);
+    const sortOrder = orderBetween(targetList?.cards[toIndex - 1], targetList?.cards[toIndex]);
+
+    return { cardId, toListId, toIndex, sortOrder, ...rest };
+  },
+  target: cardMovedWithOrder,
+});
+
+// new one (not in tutorial)
+sample({
+  clock: cardMovedWithinTheList,
+  source: $board,
+  fn: (board, { cardId, toListId, toIndex, ...rest }) => {
+    const targetList = board.find((list) => list.id === toListId);
+    const sortOrder = orderBetween(targetList?.cards[toIndex - 1], targetList?.cards[toIndex]);
+
+    return { cardId, toListId, toIndex, sortOrder, ...rest };
+  },
+  target: cardMovedWithOrder,
+});
+
+sample({
+  clock: cardMovedWithOrder,
+  fn: ({ cardId, toListId, sortOrder }) => ({ cardId, card: { list_id: toListId, sort_order: sortOrder } }),
+  target: cardEditFx,
+});
+
+
+// utils
+function orderBetween(previous?: { sort_order: number }, next?: { sort_order: number }): number {
+  if (previous && next) return (previous.sort_order + next.sort_order) / 2;
+  if (next) return next.sort_order - 1000;
+  if (previous) return previous.sort_order + 1000;
+  return 10_000;
+}
+

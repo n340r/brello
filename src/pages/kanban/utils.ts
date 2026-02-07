@@ -58,9 +58,10 @@ function randomTaskName(): string {
 }
 
 function createRandomTaskList(amount: number): KanbanCard[] {
-  return Array.from({ length: amount }, () => ({
+  return Array.from({ length: amount }, (_, index) => ({
     id: nanoid(),
     title: randomTaskName(),
+    sort_order: (index + 1) * 1000,
   }));
 }
 
@@ -69,15 +70,18 @@ export const mockBoard: KanbanList[] = [
     id: nanoid(),
     title: "To Do",
     cards: createRandomTaskList(10),
+    sort_order: 1000,
   },
   {
     id: nanoid(),
     title: "In Progress",
     cards: createRandomTaskList(15),
+    sort_order: 2000,
   },
   {
     id: nanoid(),
     title: "Done",
     cards: createRandomTaskList(30),
+    sort_order: 3000,
   },
 ];
